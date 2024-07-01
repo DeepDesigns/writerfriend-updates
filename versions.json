@@ -1,0 +1,10 @@
+{
+    "latest": "0.1.0",
+    "versions": {
+      "0.1.0": {
+        "src": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.1.0/src",
+        "migrations": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.1.0/migrations"
+      }
+    }
+  }
+  
