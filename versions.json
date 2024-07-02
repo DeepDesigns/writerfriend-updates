@@ -1,14 +1,15 @@
 {
-    "latest": "0.2.0",
-    "versions": {
-      "0.1.0": {
-        "src": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.1.0/src",
-        "migrations": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.1.0/migrations"
-      },
-      "0.2.0": {
-            "src": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.2.0/src",
-            "migrations": "https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/0.2.0/migrations"
-        }
+  "latest": "0.2.0",
+  "versions": {
+    "0.2.0": {
+      "src": [
+        "server.js",
+        "index.js",
+        "models.js"
+      ],
+      "migrations": [
+        "2024XXXXXX-initial-schema.js"
+      ]
     }
   }
-  
+}
