@@ -52,7 +52,7 @@ function createWindow() {
 
   const menu = Menu.buildFromTemplate([
     {
-      label: 'File',
+      label: 'FileTest',
       submenu: [
         {
           label: 'Check for Updates',
