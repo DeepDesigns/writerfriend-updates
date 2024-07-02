@@ -22,7 +22,7 @@ function getCurrentVersion() {
   return '0.1.0'; // Default version if file doesn't exist
 }
 
-const CURRENT_VERSION = getCurrentVersion; // The current version of your app
+const CURRENT_VERSION = getCurrentVersion(); // The current version of your app
 const VERSIONS_URL = 'https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/versions.json'; // URL to versions.json
 
 async function startServer() {
