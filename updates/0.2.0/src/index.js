@@ -1,5 +1,3 @@
-//0.2.0
-
 const { app, BrowserWindow, Menu, dialog } = require('electron');
 const log = require('electron-log');
 const path = require('path');
@@ -12,17 +10,7 @@ log.transports.file.level = 'info';
 let serverInstance;
 let mainWindow;
 
-// Function to read current version from currentversion.json
-function getCurrentVersion() {
-  const versionFilePath = path.join(__dirname, 'currentversion.json');
-  if (fs.existsSync(versionFilePath)) {
-    const versionData = fs.readFileSync(versionFilePath);
-    return JSON.parse(versionData).version;
-  }
-  return '0.1.0'; // Default version if file doesn't exist
-}
-
-const CURRENT_VERSION = getCurrentVersion; // The current version of your app
+const CURRENT_VERSION = '0.1.0'; // The current version of your app
 const VERSIONS_URL = 'https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/versions.json'; // URL to versions.json
 
 async function startServer() {
@@ -174,7 +162,7 @@ function createWindow() {
 
   const menu = Menu.buildFromTemplate([
     {
-      label: 'File',
+      label: 'FileTest',
       submenu: [
         {
           label: 'Check for Updates',
