@@ -8,7 +8,7 @@
         "models.js"
       ],
       "migrations": [
-        "2024XXXXXX-initial-schema.js"
+        "20240625211244-initial-schema.js"
       ]
     }
   }
