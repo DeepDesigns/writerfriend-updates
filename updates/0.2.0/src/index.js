@@ -1,3 +1,5 @@
+//0.2.0
+
 const { app, BrowserWindow, Menu, dialog } = require('electron');
 const log = require('electron-log');
 const path = require('path');
@@ -10,7 +12,17 @@ log.transports.file.level = 'info';
 let serverInstance;
 let mainWindow;
 
-const CURRENT_VERSION = '0.1.0'; // The current version of your app
+// Function to read current version from currentversion.json
+function getCurrentVersion() {
+  const versionFilePath = path.join(__dirname, 'currentversion.json');
+  if (fs.existsSync(versionFilePath)) {
+    const versionData = fs.readFileSync(versionFilePath);
+    return JSON.parse(versionData).version;
+  }
+  return '0.1.0'; // Default version if file doesn't exist
+}
+
+const CURRENT_VERSION = getCurrentVersion; // The current version of your app
 const VERSIONS_URL = 'https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/versions.json'; // URL to versions.json
 
 async function startServer() {
@@ -74,6 +86,7 @@ async function downloadAndUpdateFiles(version, versionData) {
     copyFilesToTarget(path.join(tmpDir, 'migrations'), path.join(__dirname, '..', 'migrations'));
 
     log.info('Update downloaded and applied successfully.');
+    updateCurrentVersion(version);
     dialog.showMessageBox({
       type: 'info',
       title: 'Update Applied',
@@ -162,7 +175,7 @@ function createWindow() {
 
   const menu = Menu.buildFromTemplate([
     {
-      label: 'FileTest',
+      label: 'File',
       submenu: [
         {
           label: 'Check for Updates',
@@ -194,6 +207,12 @@ app.whenReady().then(async () => {
   });
 });
 
+function updateCurrentVersion(version) {
+  const versionFilePath = path.join(__dirname, 'currentversion.json');
+  const versionData = JSON.stringify({ version }, null, 2);
+  fs.writeFileSync(versionFilePath, versionData);
+}
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     if (serverInstance) {
@@ -206,6 +225,7 @@ app.on('window-all-closed', () => {
     }
   }
 });
+
 
 app.on('before-quit', () => {
   if (serverInstance) {
