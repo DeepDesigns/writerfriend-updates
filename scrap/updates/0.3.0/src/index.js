@@ -1,4 +1,4 @@
-//0.2.0
+//0.2.0-test
 
 const { app, BrowserWindow, Menu, dialog } = require('electron');
 const log = require('electron-log');
@@ -22,7 +22,8 @@ function getCurrentVersion() {
   return '0.1.0'; // Default version if file doesn't exist
 }
 
-const CURRENT_VERSION = getCurrentVersion; // The current version of your app
+const CURRENT_VERSION = getCurrentVersion(); // The current version of your app
+log.info(`Current version: ${CURRENT_VERSION}`);
 const VERSIONS_URL = 'https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/versions.json'; // URL to versions.json
 
 async function startServer() {
@@ -61,6 +62,12 @@ async function checkForUpdates() {
       }
     } else {
       log.info('No updates available.');
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'No Updates',
+        message: 'Your application is up-to-date.',
+        buttons: ['OK']
+      });
     }
   } catch (error) {
     log.error('Error checking for updates:', error);
