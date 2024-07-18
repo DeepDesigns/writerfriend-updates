@@ -1,7 +1,7 @@
 {
-  "latest": "0.2.0",
+  "latest": "0.1.0",
   "versions": {
-    "0.2.0": {
+    "0.1.0": {
       "src": [
         "server.js",
         "index.js",
