@@ -1,3 +1,7 @@
+<<<<<<< HEAD:scrap/hybridapproachthatreadsdir/src/index.js
+=======
+//0.2.0-test
+>>>>>>> 045fb440c6b6cde78cfef88b62046551d5a150f7:updates/0.2.0/src/index.js
 
 const { app, BrowserWindow, Menu, dialog } = require('electron');
 const log = require('electron-log');
