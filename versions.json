@@ -10,6 +10,13 @@
       "migrations": [
         "20240625211244-initial-schema.js"
       ]
+    },
+    "0.2.0": {
+      "src": [
+        "server.js",
+        "index.js",
+        "models.js"
+      ],
     }
   }
 }
