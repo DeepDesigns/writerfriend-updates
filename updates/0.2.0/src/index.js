@@ -1,12 +1,10 @@
 //0.2.0
 const { app, BrowserWindow, Menu, dialog } = require('electron');
-const log = require('electron-log');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const fetch = require('node-fetch'); // Make sure to install node-fetch if you haven't already
 const { createServer } = require('./server');
-
-log.transports.file.level = 'info';
 
 let serverInstance;
 let mainWindow;
@@ -22,16 +20,14 @@ function getCurrentVersion() {
 }
 
 const CURRENT_VERSION = getCurrentVersion(); // The current version of your app
-log.info(`Current version: ${CURRENT_VERSION}`);
 const VERSIONS_URL = 'https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/versions.json'; // URL to versions.json
 
 async function startServer() {
   if (!serverInstance) {
     try {
       serverInstance = await createServer();
-      log.info('Server started successfully');
+      // dialog.showMessageBox({ type: 'info', title: 'Server', message: 'Server started successfully' }); // Removed this line
     } catch (error) {
-      log.error('Error starting server:', error);
       dialog.showErrorBox('Server Error', `Failed to start the server: ${error.message}`);
       app.quit();
     }
@@ -40,14 +36,14 @@ async function startServer() {
 
 async function checkForUpdates() {
   try {
+    dialog.showMessageBox({ type: 'info', title: 'Update Check', message: 'Checking for updates...' });
+
     const response = await fetch(VERSIONS_URL);
     const versions = await response.json();
-    log.info('Fetched versions:', versions);
-
+    
     const latestVersion = versions.latest;
 
     if (latestVersion !== CURRENT_VERSION) {
-      log.info(`Update available: ${latestVersion}`);
       const userResponse = await dialog.showMessageBox({
         type: 'info',
         title: 'Update Available',
@@ -57,10 +53,9 @@ async function checkForUpdates() {
 
       if (userResponse.response === 0) {
         const versionData = versions.versions[latestVersion];
-        await downloadAndUpdateFiles(latestVersion, versionData);
+        await downloadAndReplaceFiles(latestVersion, versionData);
       }
     } else {
-      log.info('No updates available.');
       dialog.showMessageBox({
         type: 'info',
         title: 'No Updates',
@@ -69,55 +64,48 @@ async function checkForUpdates() {
       });
     }
   } catch (error) {
-    log.error('Error checking for updates:', error);
+    dialog.showErrorBox('Update Error', `Error checking for updates: ${error.message}`);
   }
 }
 
-async function downloadAndUpdateFiles(version, versionData) {
+async function downloadAndReplaceFiles(version, versionData) {
   try {
-    const tmpDir = path.join(__dirname, 'tmp');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir);
+    const updatesDir = path.join(__dirname, 'updates', version);
+    if (!fs.existsSync(updatesDir)) {
+      fs.mkdirSync(updatesDir, { recursive: true });
     }
 
-    log.info(`Attempting to fetch update data for version: ${version}`);
-    log.info(`Version data: ${JSON.stringify(versionData)}`);
+    await downloadFiles(versionData.src, 'src', updatesDir);
+    
+    if (versionData.migrations) {
+      await downloadFiles(versionData.migrations, 'migrations', updatesDir);
+    }
 
-    await downloadFiles(versionData.src, 'src', tmpDir, version);
-    await downloadFiles(versionData.migrations, 'migrations', tmpDir, version);
-
-    log.info('Update downloaded to temporary directory successfully.');
-
-    copyFilesToTarget(path.join(tmpDir, 'src'), path.join(__dirname,));
-    copyFilesToTarget(path.join(tmpDir, 'migrations'), path.join(__dirname, '..', 'migrations'));
-
-    log.info('Update downloaded and applied successfully.');
+    await replaceFiles(updatesDir);
     updateCurrentVersion(version);
+
     dialog.showMessageBox({
       type: 'info',
       title: 'Update Applied',
-      message: 'The update has been applied successfully. Please restart the application to use the latest version.',
-      buttons: ['Restart', 'Later']
-    }).then((result) => {
-      if (result.response === 0) {
-        app.quit();
-        app.relaunch();
-      }
+      message: 'The update has been applied successfully. The application will now restart.',
+      buttons: ['OK']
+    }).then(() => {
+      app.quit();
+      app.relaunch();
     });
   } catch (error) {
-    log.error('Error downloading files:', error);
+    dialog.showErrorBox('Update Error', `Error applying update: ${error.message}`);
   }
 }
 
-async function downloadFiles(files, folder, tmpDir, version) {
-  const folderPath = path.join(tmpDir, folder);
+async function downloadFiles(files, folder, updatesDir) {
+  const folderPath = path.join(updatesDir, folder);
   if (!fs.existsSync(folderPath)) {
     fs.mkdirSync(folderPath, { recursive: true });
   }
 
   for (const file of files) {
-    const fileUrl = `https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/${version}/${folder}/${file}`;
-    log.info(`Downloading file from URL: ${fileUrl}`);
+    const fileUrl = `https://raw.githubusercontent.com/DeepDesigns/writerfriend-updates/main/updates/${path.basename(updatesDir)}/${folder}/${file}`;
     const filePath = path.join(folderPath, file);
     await downloadFile(fileUrl, filePath);
   }
@@ -128,7 +116,6 @@ function downloadFile(url, dest) {
     const file = fs.createWriteStream(dest);
     https.get(url, (response) => {
       if (response.statusCode !== 200) {
-        log.error(`Failed to get '${url}' (${response.statusCode})`);
         return reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
       }
       response.pipe(file);
@@ -141,20 +128,46 @@ function downloadFile(url, dest) {
   });
 }
 
-function copyFilesToTarget(source, target) {
-  if (fs.existsSync(source)) {
-    const files = fs.readdirSync(source);
-    files.forEach((file) => {
-      const curSource = path.join(source, file);
-      const curTarget = path.join(target, file);
-      if (fs.lstatSync(curSource).isDirectory()) {
-        copyFilesToTarget(curSource, curTarget);
-      } else {
-        fs.copyFileSync(curSource, curTarget);
-        log.info(`Copied file from ${curSource} to ${curTarget}`);
-      }
+async function replaceFiles(updatesDir) {
+  const newSrcDir = path.join(updatesDir, 'src');
+  const currentSrcDir = path.join(__dirname);
+
+  // Copy the new files from the update directory to the src directory
+  await copyFiles(newSrcDir, currentSrcDir);
+}
+
+function copyFiles(source, target) {
+  return new Promise((resolve, reject) => {
+    fs.readdir(source, (err, files) => {
+      if (err) return reject(err);
+
+      let remaining = files.length;
+      if (remaining === 0) return resolve();
+
+      files.forEach(file => {
+        const srcFile = path.join(source, file);
+        const destFile = path.join(target, file);
+
+        fs.lstat(srcFile, (err, stats) => {
+          if (err) return reject(err);
+
+          if (stats.isDirectory()) {
+            fs.mkdir(destFile, { recursive: true }, (err) => {
+              if (err) return reject(err);
+              copyFiles(srcFile, destFile).then(() => {
+                if (--remaining === 0) resolve();
+              }).catch(reject);
+            });
+          } else {
+            fs.copyFile(srcFile, destFile, err => {
+              if (err) return reject(err);
+              if (--remaining === 0) resolve();
+            });
+          }
+        });
+      });
     });
-  }
+  });
 }
 
 function createWindow() {
@@ -204,7 +217,6 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  log.info('App is ready, starting server...');
   await startServer();
   createWindow();
 
@@ -223,7 +235,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     if (serverInstance) {
       serverInstance.close(() => {
-        log.info('Server closed');
         app.quit();
       });
     } else {
@@ -232,12 +243,9 @@ app.on('window-all-closed', () => {
   }
 });
 
-
 app.on('before-quit', () => {
   if (serverInstance) {
-    serverInstance.close(() => {
-      log.info('Server closed');
-    });
+    serverInstance.close();
   }
 });
 
