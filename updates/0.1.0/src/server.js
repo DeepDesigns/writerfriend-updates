@@ -52,9 +52,19 @@ app.get('/api/openProject/:projectId', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    if (!projectsFolder) {
+      console.error('Projects folder is not defined.');
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
     const projectPath = path.join(projectsFolder, project.name);
 
-    console.log(`Project database at ${projectPath} synced successfully.`);
+    if (!projectPath) {
+      console.error('Failed to construct project path.');
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    console.log(`Project database at ${projectPath} found successfully.`);
 
     res.status(200).json({ message: 'Project opened successfully' });
   } catch (err) {
@@ -64,44 +74,65 @@ app.get('/api/openProject/:projectId', async (req, res) => {
 });
 
 
+
 // FETCH PROJECTS
 app.get('/api/projects', async (req, res) => {
   try {
-
     const projects = await Project.findAll();
+
+    if (!projects) {
+      return res.status(404).json({ error: 'No projects found' });
+    }
+
     const projectList = projects.map(project => ({
       id: project.id,
       name: project.name,
       authorName: project.authorName,
-      created_date: project.createdDate.toISOString().split('T').join(' ').split('.')[0],
+      created_date: project.createdDate ? project.createdDate.toISOString().split('T').join(' ').split('.')[0] : null,
       path: project.path,
       description: project.description,
     }));
-    res.json(projectList);
+
+    res.status(200).json(projectList);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Failed to fetch projects:', err.message);
+    res.status(500).json({ error: `Failed to fetch projects: ${err.message}` });
   }
 });
 
-  // CREATE PROJECT
-  app.post('/api/create_project', async (req, res) => {
-    const projectData = req.body;
-    const projectName = projectData.name.trim();
-    const authorName = projectData.author ? projectData.author.trim() : "Author";
-    const description = projectData.description ? projectData.description.trim() : 'No description available';
+// CREATE PROJECT
+app.post('/api/create_project', async (req, res) => {
+  const { name, author, description } = req.body;
 
-    if (!projectName) {
-      return res.status(400).json({ error: 'Project name is required' });
-    }
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
 
+  const projectName = name.trim();
+  const authorName = author ? author.trim() : "Author";
+  const projectDescription = description ? description.trim() : 'No description available';
+
+  try {
+    const projectPath = path.join(projectsFolder, projectName);
+
+    // Check if a project with the same path already exists
     try {
-      const projectPath = path.join(projectsFolder, projectName);
-      await initializeProject(projectName, authorName, description, projectPath);
-      res.status(200).json({ message: 'Project created successfully' });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+      await fs.access(projectPath);
+      return res.status(409).json({ error: 'A project with this name already exists' });
+    } catch (accessErr) {
+      if (accessErr.code !== 'ENOENT') {
+        console.error('Failed to check project path:', accessErr.message);
+        return res.status(500).json({ error: `Failed to check project path: ${accessErr.message}` });
+      }
     }
-  });
+
+    await initializeProject(projectName, authorName, projectDescription, projectPath);
+    res.status(201).json({ message: 'Project created successfully' });
+  } catch (err) {
+    console.error('Failed to create project:', err.message);
+    res.status(500).json({ error: `Failed to create project: ${err.message}` });
+  }
+});
 
 // DELETE PROJECT
 app.post('/api/delete_project', async (req, res) => {
@@ -109,6 +140,7 @@ app.post('/api/delete_project', async (req, res) => {
     const { projectId } = req.body;
 
     if (!projectId) {
+      console.warn('Project ID is missing in the request body.');
       return res.status(400).json({ error: 'Project ID is required' });
     }
 
@@ -126,13 +158,18 @@ app.post('/api/delete_project', async (req, res) => {
         await fs.rm(projectPath, { recursive: true, force: true });
         console.log(`Project folder deleted: ${projectPath}`);
       } catch (err) {
-        console.warn(`Project folder not found: ${projectPath}`);
+        if (err.code === 'ENOENT') {
+          console.warn(`Project folder not found: ${projectPath}`);
+        } else {
+          console.error('Failed to delete project folder:', err.message);
+          return res.status(500).json({ error: `Failed to delete project folder: ${err.message}` });
+        }
       }
 
       console.log('Project deleted successfully');
       res.status(200).json({ message: 'Project deleted successfully' });
     } else {
-      console.warn('Project not found in database');
+      console.warn(`Project with ID ${projectId} not found in database.`);
       res.status(404).json({ error: 'Project not found in database' });
     }
   } catch (err) {
@@ -194,23 +231,38 @@ app.get('/projects/:projectId/images/:imageName', async (req, res) => {
   }
 });
 
+
+// Fetch metadata
 app.get('/api/project_metadata', async (req, res) => {
   const { projectId } = req.query;
 
   if (!projectId) {
+    console.warn('Project ID is missing in the request query.');
     return res.status(400).json({ error: 'Project ID is required' });
   }
 
   try {
     const project = await Project.findByPk(projectId);
     if (!project) {
+      console.warn(`Project with ID ${projectId} not found.`);
       return res.status(404).json({ error: 'Project not found' });
     }
 
     const metadataPath = path.join(project.path, 'metadata.json');
-    const metadataContent = await fs.readFile(metadataPath, 'utf8');
-    const metadata = JSON.parse(metadataContent);
+    let metadataContent;
+    try {
+      metadataContent = await fs.readFile(metadataPath, 'utf8');
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        console.warn(`Metadata file not found at ${metadataPath}`);
+        return res.status(404).json({ error: 'Metadata file not found' });
+      } else {
+        console.error(`Error reading metadata file: ${err.message}`);
+        return res.status(500).json({ error: 'Error reading metadata file' });
+      }
+    }
 
+    const metadata = JSON.parse(metadataContent);
     const mappedMetadata = {
       title: metadata.Name,
       coverImage: metadata.coverImage ? `${req.protocol}://${req.get('host')}/projects/${projectId}/images/${metadata.coverImage}` : '',
@@ -225,7 +277,6 @@ app.get('/api/project_metadata', async (req, res) => {
     res.status(500).json({ error: `Error fetching project metadata: ${err.message}` });
   }
 });
-
 
 // Update Project Metadata
 app.post('/api/project_metadata', async (req, res) => {
@@ -280,7 +331,6 @@ app.post('/api/project_metadata', async (req, res) => {
 
 
 
-
 // Upload Cover Image
 app.post('/api/upload_cover_image', async (req, res) => {
   const { projectId } = req.body;
@@ -288,6 +338,13 @@ app.post('/api/upload_cover_image', async (req, res) => {
 
   if (!projectId || !file) {
     return res.status(400).json({ success: 0, error: 'Missing project_id or coverImage' });
+  }
+
+  // Validate file type
+  const validExtensions = ['.jpg', '.jpeg', '.png', '.gif'];
+  const extension = path.extname(file.name).toLowerCase();
+  if (!validExtensions.includes(extension)) {
+    return res.status(400).json({ success: 0, error: 'Invalid file type. Only image files are allowed.' });
   }
 
   try {
@@ -300,7 +357,6 @@ app.post('/api/upload_cover_image', async (req, res) => {
     const imagesFolder = path.join(projectFolder, 'images');
     await fs.mkdir(imagesFolder, { recursive: true });
 
-    const extension = path.extname(file.name);
     const fileName = `cover${extension}`;
     const filePath = path.join(imagesFolder, fileName);
 
@@ -332,11 +388,16 @@ app.post('/api/upload_cover_image', async (req, res) => {
   }
 });
 
+
   
 
 // Create Folder
 app.post('/api/folders', async (req, res) => {
   const { name, parent_id, project_id } = req.body;
+
+  if (!name || !project_id) {
+    return res.status(400).json({ error: 'Folder name and project ID are required' });
+  }
 
   try {
     const projectPath = await getProjectPath(project_id);
@@ -345,10 +406,28 @@ app.post('/api/folders', async (req, res) => {
 
     await projectDb.sync();
 
+    // Check for duplicate folder names within the same parent
+    const existingFolder = await Folder.findOne({
+      where: { name, parentId: parent_id }
+    });
+
+    if (existingFolder) {
+      await projectDb.close();
+      return res.status(400).json({ error: 'A folder with the same name already exists in this location' });
+    }
+
+    // Get the highest order number among siblings and assign the next order number
+    const highestOrderFolder = await Folder.findOne({
+      where: { parentId: parent_id },
+      order: [['order', 'DESC']]
+    });
+
+    const order = highestOrderFolder ? highestOrderFolder.order + 1 : 0;
+
     const newFolder = await Folder.create({
       name,
       parentId: parent_id,
-      order: 0, // Adjust as needed
+      order,
     });
 
     await projectDb.close();
@@ -360,10 +439,16 @@ app.post('/api/folders', async (req, res) => {
   }
 });
 
+
 // Delete Folder
 app.delete('/api/folders/:folderId', async (req, res) => {
   const { folderId } = req.params;
   const { projectId } = req.query;
+
+  if (!folderId || !projectId) {
+    console.warn('Folder ID or Project ID is missing in the request.');
+    return res.status(400).json({ error: 'Folder ID and Project ID are required' });
+  }
 
   try {
     const projectPath = await getProjectPath(projectId);
@@ -372,7 +457,28 @@ app.delete('/api/folders/:folderId', async (req, res) => {
 
     await projectDb.sync();
 
-    await Folder.destroy({ where: { id: folderId } });
+    const folder = await Folder.findByPk(folderId);
+    if (!folder) {
+      console.warn(`Folder with ID ${folderId} not found.`);
+      await projectDb.close();
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    // Get the parent ID of the folder to be deleted
+    const parentId = folder.parentId;
+
+    // Delete the folder
+    await folder.destroy();
+
+    // Update the order of remaining folders
+    const remainingFolders = await Folder.findAll({
+      where: { parentId },
+      order: [['order', 'ASC']],
+    });
+
+    for (let i = 0; i < remainingFolders.length; i++) {
+      await remainingFolders[i].update({ order: i });
+    }
 
     await projectDb.close();
 
@@ -383,11 +489,13 @@ app.delete('/api/folders/:folderId', async (req, res) => {
   }
 });
 
+
 // Fetch All Folders
 app.get('/api/folders', async (req, res) => {
   const { project_id } = req.query;
 
   if (!project_id) {
+    console.warn('Project ID is missing in the request query.');
     return res.status(400).json({ error: 'Project ID is required' });
   }
 
@@ -398,7 +506,9 @@ app.get('/api/folders', async (req, res) => {
 
     await projectDb.sync();
 
-    const folders = await Folder.findAll();
+    const folders = await Folder.findAll({
+      order: [['order', 'ASC']], // Ensuring folders are returned in order
+    });
 
     await projectDb.close();
 
@@ -409,12 +519,18 @@ app.get('/api/folders', async (req, res) => {
   }
 });
 
+
 // Rename Folder
 app.put('/api/folders/:id/rename', async (req, res) => {
   const { id } = req.params;
   const { name, project_id } = req.body; // Extract project_id from the request body
 
   console.log('rename for id:', id, "name:", name, "project_id:", project_id);
+
+  if (!id || !name || !project_id) {
+    console.warn('Missing required parameters for renaming folder.');
+    return res.status(400).json({ error: 'Folder ID, name, and project ID are required' });
+  }
 
   try {
     const projectPath = await getProjectPath(project_id);
@@ -423,7 +539,12 @@ app.put('/api/folders/:id/rename', async (req, res) => {
 
     await projectDb.sync();
 
-    await Folder.update({ name }, { where: { id } });
+    const result = await Folder.update({ name }, { where: { id } });
+
+    if (result[0] === 0) {
+      console.warn(`Folder with ID ${id} not found or name is the same.`);
+      return res.status(404).json({ error: 'Folder not found or name unchanged' });
+    }
 
     await projectDb.close();
 
@@ -1130,6 +1251,7 @@ app.get('/api/timelines/:projectId', async (req, res) => {
 // Fetch timeline data (nodes and edges)
 app.get('/api/:projectId/timelines/:timelineName', async (req, res) => {
   const { projectId, timelineName } = req.params;
+  console.log("fetching timeline file:", projectId, timelineName);
 
   try {
     const projectPath = await getProjectPath(projectId);
@@ -1137,6 +1259,7 @@ app.get('/api/:projectId/timelines/:timelineName', async (req, res) => {
 
     const timelineContent = await fs.readFile(timelinePath, 'utf8');
     const timelineData = JSON.parse(timelineContent);
+    console.log(timelineData);
 
     res.status(200).json({ nodes: timelineData.nodes, edges: timelineData.edges });
   } catch (err) {
@@ -1159,7 +1282,6 @@ app.put('/api/:projectId/timelines/:timelineName', async (req, res) => {
 
     timelineData.nodes = nodes;
     timelineData.edges = edges;
-    timelineData.modifiedDate = new Date().toISOString();
 
     await fs.writeFile(timelinePath, JSON.stringify(timelineData, null, 2));
 
@@ -1227,113 +1349,120 @@ app.post('/api/export_to_word', async (req, res) => {
   }
 });
 
+// Fetch versions for a document
 app.get('/api/versions', async (req, res) => {
   const { documentId, projectId } = req.query;
 
-  if (!documentId || !projectId) {
-    console.error('Validation failed: documentId and projectId are required');
-    return res.status(400).json({ error: 'documentId and projectId are required' });
-  }
-
   try {
-    console.log(`Fetching versions for documentId: ${documentId} and projectId: ${projectId}`);
-    const versions = await Version.findAll({
-      where: { documentId, projectId },
-      order: [['timestamp', 'DESC']],
-    });
+    const projectPath = await getProjectPath(projectId);
+    const projectDb = initializeProjectDb(projectPath);
+    const { Version } = defineProjectModels(projectDb);
 
-    if (versions.length === 0) {
-      console.log(`No versions found for documentId: ${documentId} and projectId: ${projectId}`);
-      return res.status(200).json({ message: 'No versions found' });
-    }
+    await projectDb.sync();
 
-    console.log(`Found ${versions.length} versions for documentId: ${documentId} and projectId: ${projectId}`);
+    const versions = await Version.findAll({ where: { documentId } });
 
-    const versionsList = versions.map(v => ({
-      id: v.id,
-      documentId: v.documentId,
-      projectId: v.projectId,
-      timestamp: v.timestamp,
-      contentPath: v.contentPath,
-      description: v.description,
-      color: v.color,
-    }));
-
-    console.log('Returning versions list:', JSON.stringify(versionsList));
-    res.json(versionsList);
+    await projectDb.close();
+    res.status(200).json(versions);
   } catch (err) {
-    console.error(`Failed to fetch versions: ${err.message}`);
+    console.error('Failed to fetch versions:', err.message);
     res.status(500).json({ error: `Failed to fetch versions: ${err.message}` });
   }
 });
 
 
-//Create version
 
-app.post('/api/versions', async (req, res) => {
-  console.log('Received request to create version:', req.body);
-  const { documentId, projectId } = req.body;
-
-  if (!documentId || !projectId) {
-    console.error('Validation failed: documentId and projectId are required');
-    return res.status(400).json({ error: 'documentId and projectId are required' });
-  }
+// Create a new version
+app.post('/api/create_version', async (req, res) => {
+  const { documentId, projectId, description } = req.body;
 
   try {
-    console.log(`Finding document with ID ${documentId} and project ID ${projectId}`);
-    const document = await Document.findOne({ where: { id: documentId, projectId } });
+    const projectPath = await getProjectPath(projectId);
+    const projectDb = initializeProjectDb(projectPath);
+    const { Version, Document } = defineProjectModels(projectDb);
+
+    await projectDb.sync();
+
+    const document = await Document.findByPk(documentId);
     if (!document) {
-      console.error('Document not found');
       return res.status(404).json({ error: 'Document not found' });
     }
-    console.log('Document found:', document);
 
-    console.log(`Finding project with ID ${projectId}`);
-    const project = await Project.findByPk(projectId);
-    if (!project) {
-      console.error('Project not found');
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    console.log('Project found:', project);
+    const documentContentPath = path.join(projectPath, 'manuscript', `${documentId}.json`);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const versionContentPath = path.join(projectPath, 'manuscript', 'versions', `${documentId}_${timestamp}.json`);
 
-    const versionsFolderPath = path.join(project.path, 'versions');
-    if (!fs.existsSync(versionsFolderPath)) {
-      console.log(`Creating versions folder at path ${versionsFolderPath}`);
-      fs.mkdirSync(versionsFolderPath);
-    }
+    await fs.mkdir(path.dirname(versionContentPath), { recursive: true });
+    await fs.copyFile(documentContentPath, versionContentPath);
 
-    const timestamp = new Date().toISOString().replace(/[:.-]/g, '');
-    const versionFileName = `${documentId}-${timestamp}.json`;
-    const versionFilePath = path.join(versionsFolderPath, versionFileName);
-
-    try {
-      console.log(`Reading document content from ${document.contentPath}`);
-      const documentContent = fs.readFileSync(document.contentPath, 'utf8');
-      console.log(`Writing document content to ${versionFilePath}`);
-      fs.writeFileSync(versionFilePath, documentContent);
-    } catch (e) {
-      console.error(`Failed to create version file: ${e.message}`);
-      return res.status(500).json({ error: `Failed to create version file: ${e.message}` });
-    }
-
-    console.log('Creating version entry in the database');
     const version = await Version.create({
-      id: uuidv4(), // Ensure the version ID is unique
       documentId,
-      projectId,
+      contentPath: versionContentPath,
+      description,
       timestamp: new Date(),
-      contentPath: versionFilePath,
-      description: document.description,
-      color: document.color,
     });
 
-    console.log('Version created successfully:', version);
-    res.status(201).json({ message: 'Version created', version });
+    await projectDb.close();
+    res.status(201).json({ message: 'Version created successfully', version });
   } catch (err) {
-    console.error(`Failed to create version: ${err.message}`);
+    console.error('Failed to create version:', err.message);
     res.status(500).json({ error: `Failed to create version: ${err.message}` });
   }
 });
+
+// Update Version Description
+app.put('/api/update_version_description', async (req, res) => {
+  const { versionId, projectId, description } = req.body;
+
+  try {
+    const projectPath = await getProjectPath(projectId);
+    const projectDb = initializeProjectDb(projectPath);
+    const { Version } = defineProjectModels(projectDb);
+
+    await projectDb.sync();
+
+    const version = await Version.findByPk(versionId);
+    if (!version) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    await version.update({ description });
+
+    await projectDb.close();
+    res.status(200).json({ message: 'Version description updated successfully' });
+  } catch (err) {
+    console.error('Failed to update version description:', err.message);
+    res.status(500).json({ error: `Failed to update version description: ${err.message}` });
+  }
+});
+
+// Fetch Version Content
+app.get('/api/version_content', async (req, res) => {
+  const { versionId, projectId } = req.query;
+
+  try {
+    const projectPath = await getProjectPath(projectId);
+    const projectDb = initializeProjectDb(projectPath);
+    const { Version } = defineProjectModels(projectDb);
+
+    await projectDb.sync();
+
+    const version = await Version.findByPk(versionId);
+    if (!version) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const versionContentPath = version.contentPath;
+    const versionContent = await fs.readFile(versionContentPath, 'utf8');
+
+    await projectDb.close();
+    res.status(200).json({ content: versionContent });
+  } catch (err) {
+    console.error('Failed to fetch version content:', err.message);
+    res.status(500).json({ error: `Failed to fetch version content: ${err.message}` });
+  }
+});
+
 
 //End of API routes
 

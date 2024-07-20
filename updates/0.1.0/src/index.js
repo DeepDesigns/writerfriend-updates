@@ -25,7 +25,7 @@ async function startServer() {
   if (!serverInstance) {
     try {
       serverInstance = await createServer();
-      dialog.showMessageBox({ type: 'info', title: 'Server', message: 'Server started successfully' });
+      // dialog.showMessageBox({ type: 'info', title: 'Server', message: 'Server started successfully' }); // Removed this line
     } catch (error) {
       dialog.showErrorBox('Server Error', `Failed to start the server: ${error.message}`);
       app.quit();
